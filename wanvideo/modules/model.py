@@ -29,14 +29,14 @@ from comfy import model_management as mm
 __all__ = ['WanModel']
 
 class AdaLayerNorm(nn.Module):
-    def __init__(self, embedding_dim, output_dim=None, norm_elementwise_affine=False, norm_eps=1e-5, dtype=None, device=None, operations=None):
+    def __init__(self, embedding_dim, output_dim=None, norm_elementwise_affine=False, norm_eps=1e-5):
         super().__init__()
 
         output_dim = output_dim or embedding_dim * 2
 
         self.silu = nn.SiLU()
-        self.linear = operations.Linear(embedding_dim, output_dim, dtype=dtype, device=device)
-        self.norm = operations.LayerNorm(output_dim // 2, norm_eps, norm_elementwise_affine, dtype=dtype, device=device)
+        self.linear = nn.Linear(embedding_dim, output_dim)
+        self.norm = nn.LayerNorm(output_dim // 2, norm_eps, norm_elementwise_affine)
 
     def forward(self, x, temb):
         temb = self.linear(self.silu(temb))
@@ -1613,7 +1613,7 @@ class AudioInjector_WAN(nn.Module):
         if enable_adain:
             self.injector_adain_layers = nn.ModuleList([
                 AdaLayerNorm(
-                    output_dim=dim * 2, embedding_dim=adain_dim, chunk_dim=1)
+                    output_dim=dim * 2, embedding_dim=adain_dim)
                 for _ in range(audio_injector_id)
             ])
             if need_adain_ont:
