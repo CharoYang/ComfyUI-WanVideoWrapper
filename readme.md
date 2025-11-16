@@ -98,6 +98,16 @@ WanAnimate: https://github.com/Wan-Video/Wan2.2/tree/main/wan/modules/animate
 
 Lynx: https://github.com/bytedance/lynx
 
+MoCha: https://github.com/Orange-3DV-Team/MoCha
+
+UniLumos: https://github.com/alibaba-damo-academy/Lumos-Custom
+
+Bindweave: https://github.com/bytedance/BindWeave
+
+Training free techniques:
+
+TimeToMove: https://github.com/time-to-move/TTM
+
 
 Not exactly Wan model, but close enough to work with the code base:
 
