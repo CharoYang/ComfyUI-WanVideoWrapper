@@ -2280,7 +2280,9 @@ class WanModel(torch.nn.Module):
 
         _, F, H, W = x[0].shape
 
-        if sdancer_input is not None:
+        sdancer_enabled = False
+        if sdancer_input is not None and sdancer_input['start_percent'] <= current_step_percentage <= sdancer_input['end_percent']:
+            sdancer_enabled = True
             x_noise_clone = torch.stack(x)
             
         # I2V
@@ -2301,7 +2303,7 @@ class WanModel(torch.nn.Module):
             render_latent = torch.cat([hidden_states[:, :20], render_latent], dim=1)
 
         # SteadyDancer
-        if sdancer_input is not None:
+        if sdancer_enabled:
             sdancer_cond = sdancer_input["cond_pos"] if not is_uncond else sdancer_input["cond_neg"]
             condition_temporal = [self.condition_embedding_temporal(c.unsqueeze(0).float()).to(self.base_dtype) for c in [sdancer_cond]] # Temporal Motion Coherence Module.
             sdancer_cond = sdancer_cond.unsqueeze(0)
@@ -2309,7 +2311,7 @@ class WanModel(torch.nn.Module):
             condition_reshape = rearrange(sdancer_cond, 'b c t h w -> (b t) c h w')
             condition_spatial = self.condition_embedding_spatial(condition_reshape.float()).to(self.base_dtype) # Spatial Structure Adaptive Extractor.
             condition_spatial = rearrange(condition_spatial, '(b t) c h w -> b c t h w', t=time_steps, b=bs)
-            condition_fused = sdancer_cond + condition_temporal[0] + condition_spatial # Hierarchical Aggregation (1): condition, temporal condition, spatial condition
+            condition_fused = sdancer_cond + condition_temporal[0] * sdancer_input["pose_strength_temporal"] + condition_spatial * sdancer_input["pose_strength_spatial"] # Hierarchical Aggregation (1): condition, temporal condition, spatial condition
             condition_aligned = self.condition_embedding_align(condition_fused.float(), x_noise_clone).to(self.base_dtype) # Frame-wise Attention Alignment Unit.
         else:
             # patch embed
@@ -2350,7 +2352,7 @@ class WanModel(torch.nn.Module):
             x = [u + v for u, v in zip(x, fun_camera)]
 
         # SteadyDancer
-        if sdancer_input is not None:
+        if sdancer_enabled:
             ref_x = y[0][4:, :1] # reuse I2V input as reference, slice mask off
             msk = torch.ones(4, 1, H, W, device=ref_x.device) # new mask goes in middle
             ref_x = [torch.concat([ref_x, msk, ref_x])]
@@ -2362,7 +2364,7 @@ class WanModel(torch.nn.Module):
             ref_x = [self.patch_embedding(r.unsqueeze(0).float()).to(self.base_dtype) for r in ref_x]
             ref_c = [self.patch_embedding_ref_c(r[:16].unsqueeze(0).float()).to(self.base_dtype) for r in ref_c]
             F += ref_x[0].shape[2] + ref_c[0].shape[2] # update frame count for rope
-            x = [torch.cat([r, u, v], dim=2) for r, u, v in zip(x, ref_x, ref_c)]
+            x = [torch.cat([r, u * sdancer_input["ref_strength"], v * sdancer_input["ref_strength"]], dim=2) for r, u, v in zip(x, ref_x, ref_c)]
             seq_len = torch.tensor([u.flatten(2).transpose(1, 2).size(1) for u in x], dtype=torch.int32).max() # update seq len
 
         # grid sizes and seq len
