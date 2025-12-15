@@ -217,39 +217,70 @@ class NLFPredict:
             "model": ("NLFMODEL",),
             "images": ("IMAGE", {"tooltip": "Input images for the model"}),
             },
+            "optional": {
+                "per_batch": ("INT", {"default": -1, "min": -1, "max": 10000, "step": 1, "tooltip": "How many images to process at once. -1 means all at once."}),
+            }
         }
 
-    RETURN_TYPES = ("NLFPRED", )
-    RETURN_NAMES = ("pose_results",)
+    RETURN_TYPES = ("NLFPRED", "BBOX",)
+    RETURN_NAMES = ("pose_results", "bboxes")
     FUNCTION = "predict"
     CATEGORY = "WanVideoWrapper"
 
-    def predict(self, model, images):
+    def predict(self, model, images, per_batch=-1):
 
         check_jit_script_function()
         model = model.to(device)
 
-        jit_profiling_prev_state = torch._C._jit_set_profiling_executor(True)
-        try:
-            pred = model.detect_smpl_batched(images.permute(0, 3, 1, 2).to(device))
-        finally:
-            torch._C._jit_set_profiling_executor(jit_profiling_prev_state)
+        num_images = images.shape[0]
+
+        # Determine batch size
+        if per_batch == -1:
+            batch_size = num_images
+        else:
+            batch_size = per_batch
+
+        # Initialize result containers
+        all_boxes = []
+        all_joints3d_nonparam = []
+
+        # Process in batches
+        for i in range(0, num_images, batch_size):
+            end_idx = min(i + batch_size, num_images)
+            batch_images = images[i:end_idx]
+
+            jit_profiling_prev_state = torch._C._jit_set_profiling_executor(True)
+            try:
+                pred = model.detect_smpl_batched(batch_images.permute(0, 3, 1, 2).to(device))
+            finally:
+                torch._C._jit_set_profiling_executor(jit_profiling_prev_state)
+
+            # Collect boxes and joints from this batch
+            if 'boxes' in pred:
+                all_boxes.extend(pred['boxes'])
+            if 'joints3d_nonparam' in pred:
+                all_joints3d_nonparam.extend(pred['joints3d_nonparam'])
 
         model = model.to(offload_device)
 
-        pred = dict_to_device(pred, offload_device)
+        # Move collected results to offload device
+        all_boxes = [box.to(offload_device) for box in all_boxes]
+        all_joints3d_nonparam = [joints.to(offload_device) for joints in all_joints3d_nonparam]
 
+        # Maintain the original nested format: wrap in a list to match expected structure
         pose_results = {
-            'joints3d_nonparam': [],
+            'joints3d_nonparam': [all_joints3d_nonparam],
         }
-        # Collect pose data
-        for key in pose_results.keys():
-            if key in pred:
-                pose_results[key].append(pred[key])
-            else:
-                pose_results[key].append(None)
 
-        return (pose_results,)
+        # Convert bboxes to list format: [x_min, y_min, x_max, y_max] for each detection
+        # Each box tensor is shape (1, 5) with [x_min, y_min, x_max, y_max, confidence]
+        formatted_boxes = []
+        for box in all_boxes:
+            # Extract first 4 values (x_min, y_min, x_max, y_max), drop confidence
+            bbox_values = box[0, :4].cpu().tolist()
+            formatted_boxes.append(bbox_values)
+
+        return (pose_results, formatted_boxes)
 
 class DrawNLFPoses:
     @classmethod
