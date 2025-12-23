@@ -267,6 +267,7 @@ try:
 except:
     sageattn_func_ultravico = attention_func_error
 
+
 def attention(q, k, v, q_lens=None, k_lens=None, max_seqlen_q=None, max_seqlen_k=None, dropout_p=0.,
     softmax_scale=None, q_scale=None, causal=False,  window_size=(-1, -1), deterministic=False, dtype=torch.bfloat16,
     attention_mode='sdpa', attn_mask=None, multi_factor=0.9, heads=128):
